@@ -96,11 +96,19 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
         async Task StartReceivingDataAsync()
         {
             var buffer = ArrayPool<byte>.Shared.Rent(client.ReceiveBufferSize);
-            await using var stream = client.GetStream();
-            while (client.Connected)
+            try
             {
-                var bytesReceived = await stream.ReadAsync(buffer);
-                await OnDataReceived(buffer.AsMemory(..bytesReceived));
+                await using var stream = client.GetStream();
+                while (client.Connected)
+                {
+                    // Ignore messages larger than buffer size, but don't do this in production.
+                    var bytesReceived = await stream.ReadAsync(buffer);
+                    await OnDataReceived(buffer.AsMemory(..bytesReceived));
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
     }
