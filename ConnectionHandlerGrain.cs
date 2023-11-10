@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Net.Sockets;
+using Orleans.Concurrency;
 using Orleans.Runtime;
 using Orleans.Timers;
 
@@ -8,6 +9,7 @@ namespace ConnectionsSample;
 public interface IConnectionHandlerGrain : IGrainWithGuidKey
 {
     Task RegisterSelfActivation();
+    Task Send(byte[] payload);
 }
 
 public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemindable
@@ -59,7 +61,17 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
 #endregion
 
-    private async Task EnsureConnectionHealthAsync()
+    public async Task Send(byte[] payload)
+    {
+        if (_tcpClient is not null)
+        {
+            _logger.LogInformation($"Sending {payload.Length} bytes to server");
+            var stream = _tcpClient.GetStream();
+            await stream.WriteAsync(payload);
+        }
+    }
+
+    public async Task EnsureConnectionHealthAsync()
     {
         if (_tcpClient is null)
         {
@@ -70,7 +82,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
         if (_tcpClient.Connected)
         {
             var stream = _tcpClient.GetStream();
-            // Simulate ping
+            // Simulate ping.
             await stream.WriteAsync(new byte[] { 1, 2, 3 });
         }
 
@@ -98,6 +110,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
             var buffer = ArrayPool<byte>.Shared.Rent(client.ReceiveBufferSize);
             try
             {
+                // TODO: This needs better stream lifecycle handling.
                 await using var stream = client.GetStream();
                 while (client.Connected)
                 {
@@ -115,6 +128,6 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
     private async Task OnDataReceived(Memory<byte> data)
     {
-        _logger.LogInformation($"Received {data.Length} bytes");
+        _logger.LogInformation($"Received {data.Length} bytes from server");
     }
 }

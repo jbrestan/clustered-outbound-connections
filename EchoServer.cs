@@ -11,9 +11,15 @@ namespace ConnectionsSample;
 /// </summary>
 public class EchoServer : IHostedService
 {
+    private readonly ILogger<EchoServer> _logger;
     private readonly TcpListener _server = new(IPAddress.Any, 8081);
     private readonly CancellationTokenSource _serverShutdownSource = new();
     private readonly ConcurrentBag<TcpClient> _clients = new();
+
+    public EchoServer(ILogger<EchoServer> logger)
+    {
+        _logger = logger;
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -37,6 +43,7 @@ public class EchoServer : IHostedService
             // Accept connection, save the client instance for graceful shutdown
             // and start a thread that receives messages per client.
             var client = await _server.AcceptTcpClientAsync(_serverShutdownSource.Token);
+            _logger.LogInformation("New client connected");
             _clients.Add(client);
             _ = Task.Run(async () => await ClientLoop(client), _serverShutdownSource.Token);
         }
@@ -52,12 +59,14 @@ public class EchoServer : IHostedService
             {
                 // Ignore messages larger than buffer size, but don't do this in production.
                 var readBytes = await stream.ReadAsync(buffer, _serverShutdownSource.Token);
+                _logger.LogInformation($"Received {readBytes} bytes from client, sending it back");
                 // It's an echo server, so just send back the original payload.
                 await stream.WriteAsync(buffer.AsMemory(..readBytes) , _serverShutdownSource.Token);
             }
         }
         finally
         {
+            _logger.LogInformation("Client disconnected");
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }

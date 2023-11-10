@@ -32,6 +32,9 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
-app.MapControllers();
+app.MapPost("/send-sample-message", async (IGrainFactory grainFactory) =>
+{
+    await grainFactory.GetGrain<IConnectionHandlerGrain>(Guid.Empty).Send(new byte[128]);
+});
 
 app.Run();

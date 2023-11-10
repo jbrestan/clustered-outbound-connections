@@ -18,7 +18,7 @@ public class OrleansInitializer : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         // TODO: Get more realistic list of integrations
-        var integrations = new[] { Guid.NewGuid() };
+        var integrations = new[] { Guid.Empty };
         foreach (var integrationId in integrations)
         {
             var handler = _grainFactory.GetGrain<IConnectionHandlerGrain>(integrationId);
