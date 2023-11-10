@@ -15,6 +15,8 @@ builder.Host.UseOrleans(orleans =>
     orleans.UseInMemoryReminderService();
 });
 
+builder.Services.AddHostedService<EchoServer>();
+
 builder.Services.AddHostedService<OrleansInitializer>();
 
 var app = builder.Build();
