@@ -1,8 +1,6 @@
 using System.Buffers;
 using System.Net.Sockets;
-using Orleans.Concurrency;
 using Orleans.Runtime;
-using Orleans.Timers;
 
 namespace ConnectionsSample;
 
@@ -25,29 +23,19 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
     public ConnectionHandlerGrain(
         IGrainContext grainContext,
-        ITimerRegistry timerRegistry,
         ILogger<ConnectionHandlerGrain> logger)
     {
         GrainContext = grainContext;
         _logger = logger;
-
-        // Register timer that ensures connection is open and sends a ping.
-        timerRegistry.RegisterTimer(
-            GrainContext,
-            state => ((ConnectionHandlerGrain)state).EnsureConnectionHealthAsync(),
-            this,
-            TimeSpan.Zero,
-            TimeSpan.FromSeconds(5));
     }
 
-    public Task ReceiveReminder(string reminderName, TickStatus status)
+    public async Task ReceiveReminder(string reminderName, TickStatus status)
     {
         if (reminderName == ActivationReminderName)
         {
             _logger.LogInformation("Received activation reminder");
+            await EnsureConnectionHealthAsync(sendPing: true);
         }
-
-        return Task.CompletedTask;
     }
 
     public async Task RegisterSelfActivation()
@@ -63,6 +51,8 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
     public async Task Send(byte[] payload)
     {
+        await EnsureConnectionHealthAsync(sendPing: false);
+        
         if (_tcpClient is not null)
         {
             _logger.LogInformation($"Sending {payload.Length} bytes to server");
@@ -71,7 +61,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
         }
     }
 
-    public async Task EnsureConnectionHealthAsync()
+    public async Task EnsureConnectionHealthAsync(bool sendPing)
     {
         if (_tcpClient is null)
         {
@@ -79,7 +69,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
             _tcpClient = await CreateClientAsync();
         }
 
-        if (_tcpClient.Connected)
+        if (_tcpClient.Connected && sendPing)
         {
             var stream = _tcpClient.GetStream();
             // Simulate ping.
@@ -116,7 +106,10 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
                 {
                     // Ignore messages larger than buffer size, but don't do this in production.
                     var bytesReceived = await stream.ReadAsync(buffer);
-                    await OnDataReceived(buffer.AsMemory(..bytesReceived));
+                    if (bytesReceived > 0)
+                    {
+                        await OnDataReceived(buffer.AsMemory(..bytesReceived));
+                    }
                 }
             }
             finally

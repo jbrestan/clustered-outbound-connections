@@ -59,9 +59,12 @@ public class EchoServer : IHostedService
             {
                 // Ignore messages larger than buffer size, but don't do this in production.
                 var readBytes = await stream.ReadAsync(buffer, _serverShutdownSource.Token);
-                _logger.LogInformation($"Received {readBytes} bytes from client, sending it back");
-                // It's an echo server, so just send back the original payload.
-                await stream.WriteAsync(buffer.AsMemory(..readBytes) , _serverShutdownSource.Token);
+                if (readBytes > 0)
+                {
+                    _logger.LogInformation($"Received {readBytes} bytes from client, sending it back");
+                    // It's an echo server, so just send back the original payload.
+                    await stream.WriteAsync(buffer.AsMemory(..readBytes) , _serverShutdownSource.Token);
+                }
             }
         }
         finally
