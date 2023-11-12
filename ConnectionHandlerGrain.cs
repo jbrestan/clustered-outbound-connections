@@ -15,7 +15,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
     private const string ActivationReminderName = "ConnectionHandlerGrainActivationReminder";
 
     private readonly ILogger<ConnectionHandlerGrain> _logger;
-    private TcpClient? _tcpClient;
+    private readonly TcpConnectionHandler _tcpClient;
 
     public IGrainContext GrainContext { get; }
 
@@ -27,14 +27,15 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
     {
         GrainContext = grainContext;
         _logger = logger;
+        _tcpClient = new(OnDataReceived);
     }
 
     public async Task ReceiveReminder(string reminderName, TickStatus status)
     {
         if (reminderName == ActivationReminderName)
         {
-            _logger.LogInformation("Received activation reminder");
-            await EnsureConnectionHealthAsync(sendPing: true);
+            _logger.LogInformation("Received activation reminder and sending ping to server.");
+            await _tcpClient.SendPing();
         }
     }
 
@@ -51,72 +52,7 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
     public async Task Send(byte[] payload)
     {
-        await EnsureConnectionHealthAsync(sendPing: false);
-        
-        if (_tcpClient is not null)
-        {
-            _logger.LogInformation($"Sending {payload.Length} bytes to server");
-            var stream = _tcpClient.GetStream();
-            await stream.WriteAsync(payload);
-        }
-    }
-
-    public async Task EnsureConnectionHealthAsync(bool sendPing)
-    {
-        if (_tcpClient is null)
-        {
-            _logger.LogInformation("Establishing connection");
-            _tcpClient = await CreateClientAsync();
-        }
-
-        if (_tcpClient.Connected && sendPing)
-        {
-            var stream = _tcpClient.GetStream();
-            // Simulate ping.
-            await stream.WriteAsync(new byte[] { 1, 2, 3 });
-        }
-
-        // The connection state can change even after the previous send operation.
-        if (!_tcpClient.Connected)
-        {
-            _tcpClient.Close();
-            _tcpClient = null;
-        }
-    }
-
-    private async Task<TcpClient> CreateClientAsync()
-    {
-        var client = new TcpClient();
-        client.SendTimeout = 5000;
-        // TODO: The connection info should either come with RegisterSelfActivation or be queried later.
-        await client.ConnectAsync("localhost", 8081);
-
-        _ = Task.Run(StartReceivingDataAsync);
-
-        return client;
-
-        async Task StartReceivingDataAsync()
-        {
-            var buffer = ArrayPool<byte>.Shared.Rent(client.ReceiveBufferSize);
-            try
-            {
-                // TODO: This needs better stream lifecycle handling.
-                await using var stream = client.GetStream();
-                while (client.Connected)
-                {
-                    // Ignore messages larger than buffer size, but don't do this in production.
-                    var bytesReceived = await stream.ReadAsync(buffer);
-                    if (bytesReceived > 0)
-                    {
-                        await OnDataReceived(buffer.AsMemory(..bytesReceived));
-                    }
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
-        }
+        await _tcpClient.SendData(payload);
     }
 
     private async Task OnDataReceived(Memory<byte> data)
