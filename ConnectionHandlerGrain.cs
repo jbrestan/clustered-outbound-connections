@@ -34,13 +34,14 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
     {
         if (reminderName == ActivationReminderName)
         {
-            _logger.LogInformation("Received activation reminder and sending ping to server.");
+            _logger.LogInformation($"[{GrainContext.GrainId}] Received activation reminder and sending ping to server");
             await _tcpClient.SendPing();
         }
     }
 
     public async Task RegisterSelfActivation()
     {
+        _logger.LogInformation($"[{GrainContext.GrainId}] Registering activation reminder");
         // Register a reminder that activates this grain in case it gets deactivated.
         await this.RegisterOrUpdateReminder(
             ActivationReminderName,
@@ -52,11 +53,12 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
 
     public async Task Send(byte[] payload)
     {
+        _logger.LogInformation($"[{GrainContext.GrainId}] Sending {payload.Length} bytes of data to server");
         await _tcpClient.SendData(payload);
     }
 
     private async Task OnDataReceived(Memory<byte> data)
     {
-        _logger.LogInformation($"Received {data.Length} bytes from server");
+        _logger.LogInformation($"[{GrainContext.GrainId}] Received {data.Length} bytes from server");
     }
 }

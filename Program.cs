@@ -37,4 +37,15 @@ app.MapPost("/send-sample-message", async (IGrainFactory grainFactory) =>
     await grainFactory.GetGrain<IConnectionHandlerGrain>(Guid.Empty).Send(new byte[128]);
 });
 
+app.MapPost("/create-thousand-connections", async (IGrainFactory grainFactory) =>
+{
+    var size = 1000;
+    var tasks = new List<Task>(size);
+    foreach (var id in Enumerable.Range(0, size).Select(_ => Guid.NewGuid()))
+    {
+        tasks.Add(grainFactory.GetGrain<IConnectionHandlerGrain>(id).Send(new byte[128]));
+    }
+    await Task.WhenAll(tasks);
+});
+
 app.Run();
