@@ -10,7 +10,7 @@ public interface IConnectionHandlerGrain : IGrainWithGuidKey
     Task Send(byte[] payload);
 }
 
-public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemindable
+public class ConnectionHandlerGrain : Grain, IConnectionHandlerGrain, IRemindable
 {
     private const string ActivationReminderName = "ConnectionHandlerGrainActivationReminder";
 
@@ -28,6 +28,20 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
         GrainContext = grainContext;
         _logger = logger;
         _tcpClient = new(OnDataReceived);
+    }
+
+    public override async Task OnActivateAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"[{GrainContext.GrainId}] Activating");
+        await base.OnActivateAsync(cancellationToken);
+        await _tcpClient.EnsureConnection();
+    }
+
+    public override Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"[{GrainContext.GrainId}] Deactivating");
+        _tcpClient.Dispose();
+        return base.OnDeactivateAsync(reason, cancellationToken);
     }
 
     public async Task ReceiveReminder(string reminderName, TickStatus status)
@@ -57,8 +71,9 @@ public class ConnectionHandlerGrain : IGrainBase, IConnectionHandlerGrain, IRemi
         await _tcpClient.SendData(payload);
     }
 
-    private async Task OnDataReceived(Memory<byte> data)
+    private Task OnDataReceived(ReadOnlySequence<byte> data, CancellationToken cancellation)
     {
         _logger.LogInformation($"[{GrainContext.GrainId}] Received {data.Length} bytes from server");
+        return Task.CompletedTask;
     }
 }

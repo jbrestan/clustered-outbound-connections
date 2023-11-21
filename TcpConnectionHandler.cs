@@ -1,31 +1,25 @@
 using System.Buffers;
+using System.IO.Pipelines;
 using System.Net.Sockets;
 
 namespace ConnectionsSample;
 
-public class TcpConnectionHandler : IDisposable
+public sealed class TcpConnectionHandler : IDisposable
 {
-    private TcpClient? _client = null;
-    private NetworkStream? _stream = null;
-    private bool _isDisposed = false;
-    private readonly Func<Memory<byte>, Task> _onMessageReceived;
+    private TcpClient _client = new ();
+    private readonly CancellationTokenSource _cancellation = new ();
+    private readonly Func<ReadOnlySequence<byte>, CancellationToken, Task> _onMessageReceived;
 
-    public TcpConnectionHandler(Func<Memory<byte>, Task> onMessageReceived)
+    public TcpConnectionHandler(Func<ReadOnlySequence<byte>, CancellationToken, Task> onMessageReceived)
     {
         _onMessageReceived = onMessageReceived;
     }
 
     public async Task SendData(byte[] payload)
     {
+        _cancellation.Token.ThrowIfCancellationRequested();
         await EnsureConnection();
-        if (_stream is not null)
-        {
-            await _stream.WriteAsync(payload);
-        }
-        else
-        {
-            throw new IOException("Client not connected.");
-        }
+        await _client.GetStream().WriteAsync(payload, _cancellation.Token);
     }
 
     public async Task SendPing()
@@ -33,66 +27,43 @@ public class TcpConnectionHandler : IDisposable
         await SendData(new byte[] {1,2,3});
     }
 
-    private async Task EnsureConnection()
+    public async Task EnsureConnection()
     {
-        if(!_isDisposed)
+        if(!_client.Connected && !_cancellation.IsCancellationRequested)
         {
-            if (_client is not null && !_client.Connected)
-            {
-                _client?.Dispose();
-                _client = null;
-                _stream = null;
-            }
-
-            if(_client is null)
-            {
-                _client = await CreateClientAsync();
-                _stream = _client.GetStream();
-            }
+            _client = new ();
+            await _client.ConnectAsync("localhost", 8081);
+            _ = Task.Run(async () => await ReceiveDataAsync(_client, _cancellation.Token));
         }
     }
 
-    private async Task<TcpClient> CreateClientAsync()
+    private async Task ReceiveDataAsync(TcpClient client, CancellationToken cancellation)
     {
-        var client = new TcpClient();
-        client.SendTimeout = 5000;
-        // TODO: The connection info should either come with RegisterSelfActivation or be queried later.
-        await client.ConnectAsync("localhost", 8081);
-
-        _ = Task.Run(StartReceivingDataAsync);
-
-        return client;
-
-        async Task StartReceivingDataAsync()
+        var reader = PipeReader.Create(client.GetStream(), new StreamPipeReaderOptions(leaveOpen: true));
+        try
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(client.ReceiveBufferSize);
-            try
+            while (client.Connected && !cancellation.IsCancellationRequested)
             {
-                // TODO: This needs better stream lifecycle handling.
-                await using var stream = client.GetStream();
-                while (client.Connected)
+                var readResult = await reader.ReadAsync(cancellation);
+                var buffer = readResult.Buffer;
+                if (!buffer.IsEmpty)
                 {
-                    // Ignore messages larger than buffer size, but don't do this in production.
-                    var bytesReceived = await stream.ReadAsync(buffer);
-                    if (bytesReceived > 0)
-                    {
-                        await _onMessageReceived(buffer.AsMemory(..bytesReceived));
-                    }
+                    // Buffer should be parsed into messages
+                    await _onMessageReceived(buffer, _cancellation.Token);
+                    reader.AdvanceTo(buffer.End);
                 }
             }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+        }
+        finally
+        {
+            client.Dispose();
+            await reader.CompleteAsync();
         }
     }
 
     public void Dispose()
     {
-        if(!_isDisposed)
-        {
-            _client?.Dispose();
-            _isDisposed = true;
-        }
+        _cancellation.Cancel();
+        _client.Dispose();
     }
 }
