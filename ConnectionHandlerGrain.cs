@@ -8,6 +8,7 @@ public interface IConnectionHandlerGrain : IGrainWithGuidKey
 {
     Task RegisterSelfActivation();
     Task Send(byte[] payload);
+    Task OnDataReceived(byte[] data);
 }
 
 public class ConnectionHandlerGrain : Grain, IConnectionHandlerGrain, IRemindable
@@ -27,7 +28,11 @@ public class ConnectionHandlerGrain : Grain, IConnectionHandlerGrain, IRemindabl
     {
         GrainContext = grainContext;
         _logger = logger;
-        _tcpClient = new(OnDataReceived);
+
+        // If the handler needs to call this or other grains back, it needs to do so through an Orleans grain proxy.
+        // See https://learn.microsoft.com/en-us/dotnet/orleans/grains/external-tasks-and-grains#example-make-a-grain-call-from-code-that-runs-on-a-thread-pool
+        var thisProxy = GrainFactory.GetGrain<IConnectionHandlerGrain>(this.GetGrainId());
+        _tcpClient = new(thisProxy.OnDataReceived);
     }
 
     public override async Task OnActivateAsync(CancellationToken cancellationToken)
@@ -71,7 +76,7 @@ public class ConnectionHandlerGrain : Grain, IConnectionHandlerGrain, IRemindabl
         await _tcpClient.SendData(payload);
     }
 
-    private Task OnDataReceived(ReadOnlySequence<byte> data, CancellationToken cancellation)
+    public Task OnDataReceived(byte[] data)
     {
         _logger.LogInformation($"[{GrainContext.GrainId}] Received {data.Length} bytes from server");
         return Task.CompletedTask;

@@ -8,9 +8,9 @@ public sealed class TcpConnectionHandler : IDisposable
 {
     private TcpClient _client = new ();
     private readonly CancellationTokenSource _cancellation = new ();
-    private readonly Func<ReadOnlySequence<byte>, CancellationToken, Task> _onMessageReceived;
+    private readonly Func<byte[], Task> _onMessageReceived;
 
-    public TcpConnectionHandler(Func<ReadOnlySequence<byte>, CancellationToken, Task> onMessageReceived)
+    public TcpConnectionHandler(Func<byte[], Task> onMessageReceived)
     {
         _onMessageReceived = onMessageReceived;
     }
@@ -49,7 +49,7 @@ public sealed class TcpConnectionHandler : IDisposable
                 if (!buffer.IsEmpty)
                 {
                     // Buffer should be parsed into messages
-                    await _onMessageReceived(buffer, _cancellation.Token);
+                    await _onMessageReceived(buffer.ToArray());
                     reader.AdvanceTo(buffer.End);
                 }
             }
